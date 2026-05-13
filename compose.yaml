@@ -1,0 +1,170 @@
+services:
+  prefect-metadata:
+    image: docker.io/postgres:17-alpine3.23
+    environment:
+      POSTGRES_USER: prefect
+      POSTGRES_PASSWORD: prefect
+      POSTGRES_DB: prefect
+    volumes:
+      - ./prefect/metadata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prefect"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  dragonfly:
+    image: ghcr.io/dragonflydb/dragonfly:v1.38.0
+    expose:
+      - 6379
+    restart: always
+    volumes:
+      - ./prefect/cache:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    command:
+      [
+        "--proactor_threads=2",
+        "--maxmemory=512mb",
+        "--bind=0.0.0.0",
+        "--port=6379",
+      ]
+
+  prefect-server:
+    build:
+      context: ./prefect
+      dockerfile: Containerfile
+    working_dir: /prefect
+    depends_on:
+      prefect-metadata:
+        condition: service_healthy
+      dragonfly:
+        condition: service_healthy
+    ports:
+      - "${HOST_IP:-127.0.0.1}:${PREFECT_HOST_IP:-4200}:4200"
+    environment:
+      PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://prefect:prefect@prefect-metadata:5432/prefect
+      PREFECT_SERVER_API_HOST: 0.0.0.0
+      PREFECT_SERVER_UI_API_URL: http://${HOST_IP-127.0.0.1}:4200/api
+      PREFECT_MESSAGING_BROKER: prefect_redis.messaging
+      PREFECT_MESSAGING_CACHE: prefect_redis.messaging
+      PREFECT_REDIS_MESSAGING_HOST: dragonfly
+      PREFECT_REDIS_MESSAGING_PORT: 6379
+      PREFECT_REDIS_MESSAGING_DB: 0
+    env_file: .env
+    volumes:
+      - ./prefect/app:/prefect:z
+    command: prefect server start --no-services
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request as u;
+            u.urlopen('http://${HOST_IP-127.0.0.1}:4200/api/health', timeout=1)",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+      start_period: 60s
+
+  prefect-services:
+    build:
+      context: ./prefect
+      dockerfile: Containerfile
+    working_dir: /prefect
+    depends_on:
+      prefect-server:
+        condition: service_healthy
+    environment:
+      PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://prefect:prefect@prefect-metadata:5432/prefect
+      PREFECT_MESSAGING_BROKER: prefect_redis.messaging
+      PREFECT_MESSAGING_CACHE: prefect_redis.messaging
+      PREFECT_REDIS_MESSAGING_HOST: dragonfly
+      PREFECT_REDIS_MESSAGING_PORT: 6379
+      PREFECT_REDIS_MESSAGING_DB: 0
+    env_file: .env
+    volumes:
+      - ./prefect/app:/prefect:z
+    command: prefect server services start
+
+  prefect-worker:
+    build:
+      context: ./prefect
+      dockerfile: Containerfile
+    working_dir: /prefect
+    depends_on:
+      prefect-server:
+        condition: service_healthy
+    environment:
+      PREFECT_API_URL: http://prefect-server:4200/api
+      PREFECT_WORKING_DIR: /prefect
+    env_file: .env
+    volumes:
+      - ./prefect/app:/prefect:z
+    command: prefect worker start --pool local-pool
+    restart: on-failure
+
+  kafka:
+    image: docker.io/apache/kafka:4.1.2
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://localhost:9092,CONTROLLER://localhost:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: true
+
+  stream-listener:
+    image: docker.io/python:3.14.5-alpine3.23
+    volumes:
+      - ./stream-listener.py:/app/stream-listener.py:z
+    command: sh -c "pip install tornado && python3 /app/stream-listener.py"
+
+  spark-master:
+    image: apache/spark:4.1.1
+    container_name: spark-master
+    ports:
+      - ${HOST_IP:-127.0.0.1}:${HOST_SPARK_APP_UI:-4040}:4040
+      - ${HOST_IP:-127.0.0.1}:${HOST_SPARK_MASTER_RPC_PORT:-7077}:7077
+      - ${HOST_IP:-127.0.0.1}:${HOST_SPARK_MASTER_WEB_UI:-8080}:8080
+    expose:
+      - 7077
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+
+  spark-worker:
+    image: apache/spark:4.1.1
+    depends_on:
+      - spark-master
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker
+      spark://spark-master:7077
+
+  warehouse:
+    image: docker.io/postgres:18.3-alpine3.23
+    restart: always
+    volumes:
+      - ./storage/postgres:/var/lib/postgresql
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    env_file:
+      - .env
+    ports:
+      - "${HOST_IP:-127.0.0.1}:${WAREHOUSE_HOST_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
