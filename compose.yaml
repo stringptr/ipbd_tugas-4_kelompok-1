@@ -134,7 +134,7 @@ services:
 
   spark-master:
     image: apache/spark:4.1.1
-    container_name: spark-master
+    container_name: spark-master-ipbd
     ports:
       - ${HOST_IP:-127.0.0.1}:${HOST_SPARK_APP_UI:-4040}:4040
       - ${HOST_IP:-127.0.0.1}:${HOST_SPARK_MASTER_RPC_PORT:-7077}:7077
@@ -162,7 +162,7 @@ services:
     env_file:
       - .env
     ports:
-      - "${HOST_IP:-127.0.0.1}:${WAREHOUSE_HOST_PORT:-5432}:5432"
+      - "${HOST_IP:-127.0.0.1}:${WAREHOUSE_HOST_PORT:-5450}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
