@@ -25,11 +25,11 @@ if env_file:
 class Settings:
     """Application settings loaded from environment variables."""
 
-    WAREHOUSE_HOST: str = os.getenv("POSTGRES_WAREHOUSE_HOST", "localhost")
-    WAREHOUSE_PORT: str = os.getenv("POSTGRES_WAREHOUSE_PORT", "5432")
-    WAREHOUSE_USER: str = os.getenv("POSTGRES_WAREHOUSE_USER", "postgres")
-    WAREHOUSE_PASSWORD: str = os.getenv("POSTGRES_WAREHOUSE_PASSWORD", "postgres")
-    WAREHOUSE_NAME: str = os.getenv("POSTGRES_WAREHOUSE_DB", "postgres")
+    WAREHOUSE_HOST: str = os.getenv("WAREHOUSE_POSTGRES_HOST", "warehouse")
+    WAREHOUSE_PORT: str = os.getenv("WAREHOUSE_POSTGRES_PORT", "5432")
+    WAREHOUSE_USER: str = os.getenv("WAREHOUSE_POSTGRES_USER", "postgres")
+    WAREHOUSE_PASSWORD: str = os.getenv("WAREHOUSE_POSTGRES_PASSWORD", "postgres")
+    WAREHOUSE_NAME: str = os.getenv("WAREHOUSE_POSTGRES_DB", "postgres")
 
     DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "5"))
     DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "10"))

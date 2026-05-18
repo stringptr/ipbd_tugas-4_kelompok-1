@@ -1,3 +1,11 @@
 FROM docker.io/prefecthq/prefect:3-latest
 
 RUN uv pip install pandas --no-cache
+RUN uv pip install sqlalchemy psycopg2-binary
+
+RUN uv pip install \
+    pandas \
+    sqlalchemy \
+    psycopg2-binary \
+    requests \
+    --no-cache

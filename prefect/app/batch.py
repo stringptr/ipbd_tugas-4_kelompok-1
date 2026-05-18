@@ -1,83 +1,118 @@
 import requests
 import pandas as pd
-from pathlib import Path
-from datetime import datetime
 from prefect import flow, task
+from sqlalchemy import text
+import json
+
+from utils.database import db_manager
 
 BASE_URL = "https://earthquake.usgs.gov/fdsnws/event/1/query"
-OUTPUT_DIR = Path("/prefect/data/earthquakes")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
+# =========================
+# INIT SCHEMA (WAJIB)
+# =========================
 @task(log_prints=True)
-def download_earthquake_data(year: int):
-    print(f"Downloading earthquake data for {year}")
+def run_schema():
+    with open("sql/schema.sql", "r") as f:
+        sql = f.read()
 
-    start_time = f"{year}-01-01"
-    end_time = f"{year}-12-31"
+    with db_manager.get_connection() as conn:
+        conn.execute(text(sql))
+
+    print("Schema initialized")
+
+
+# =========================
+# EXTRACT + LOAD BRONZE
+# =========================
+@task(log_prints=True)
+def extract_to_bronze(year: int, month: int):
+
+    start_time = f"{year}-{month:02d}-01"
+    end_time = (
+        f"{year+1}-01-01"
+        if month == 12
+        else f"{year}-{month+1:02d}-01"
+    )
 
     params = {
         "format": "geojson",
         "starttime": start_time,
         "endtime": end_time,
-        "eventtype": "earthquake",
-        "minmagnitude": 0,
+        "minlatitude": -11,
+        "maxlatitude": 6,
+        "minlongitude": 95,
+        "maxlongitude": 141,
         "limit": 20000
     }
+
     response = requests.get(BASE_URL, params=params)
-    print(response.status_code)
-    print(response.text[:500])
-
-    if response.status_code != 200:
-        raise Exception(f"Failed request for year {year}")
-
     data = response.json()
-
-    features = data.get("features", [])
 
     rows = []
 
-    for feature in features:
-        props = feature.get("properties", {})
-        geom = feature.get("geometry", {})
+    for f in data.get("features", []):
 
-        coordinates = geom.get("coordinates", [None, None, None])
+        props = f.get("properties", {})
+        geom = f.get("geometry", {})
+        coords = geom.get("coordinates", [None, None, None])
+
+        # skip invalid
+        if not props.get("time") or coords[0] is None:
+            continue
 
         rows.append({
-            "id": feature.get("id"),
-            "time": props.get("time"),
-            "place": props.get("place"),
-            "magnitude": props.get("mag"),
-            "longitude": coordinates[0],
-            "latitude": coordinates[1],
-            "depth": coordinates[2],
-            "status": props.get("status"),
-            "type": props.get("type"),
-            "url": props.get("url")
+            "id": f.get("id"),
+            "raw_json": {
+                "id": f.get("id"),
+                "properties": props,
+                "geometry": geom
+            }
         })
 
-    df = pd.DataFrame(rows)
+    if not rows:
+        print(f"No data for {year}-{month:02d}")
+        return 0
 
-    output_file = OUTPUT_DIR / f"earthquake_{year}.csv"
+    # =========================
+    # BULK INSERT (FIXED JSONB)
+    # =========================
+    with db_manager.get_connection() as conn:
 
-    df.to_csv(output_file, index=False)
+        conn.execute(
+            text("""
+                INSERT INTO bronze_earthquakes (id, raw_json)
+                VALUES (:id, CAST(:raw_json AS JSONB))
+                ON CONFLICT (id) DO NOTHING
+            """),
+            [
+                {
+                    "id": r["id"],
+                    "raw_json": json.dumps(r["raw_json"])
+                }
+                for r in rows
+            ]
+        )
 
-    print(f"Saved {len(df)} rows to {output_file}")
+    print(f"Bronze inserted: {len(rows)} rows")
+    return len(rows)
 
-    return str(output_file)
 
+# =========================
+# FLOW
+# =========================
+@flow(name="earthquake-bronze-pipeline")
+def pipeline(start_year=2015, end_year=2025):
 
-@flow(name="earthquake-download-flow")
-def earthquake_download_flow(start_year: int = 2015, end_year: int = 2025):
+    # 1. INIT TABLE DULU (FIX ERROR KAMU)
+    run_schema()
 
-    downloaded_files = []
-
+    # 2. INGEST DATA
     for year in range(start_year, end_year + 1):
-        file_path = download_earthquake_data(year)
-        downloaded_files.append(file_path)
+        for month in range(1, 13):
+            extract_to_bronze(year, month)
 
-    print("All downloads completed")
-    return downloaded_files
 
 if __name__ == "__main__":
-    earthquake_download_flow()
+    pipeline()
