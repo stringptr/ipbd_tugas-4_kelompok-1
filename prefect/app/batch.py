@@ -30,11 +30,7 @@ def run_schema():
 def extract_to_bronze(year: int, month: int):
 
     start_time = f"{year}-{month:02d}-01"
-    end_time = (
-        f"{year+1}-01-01"
-        if month == 12
-        else f"{year}-{month+1:02d}-01"
-    )
+    end_time = f"{year + 1}-01-01" if month == 12 else f"{year}-{month + 1:02d}-01"
 
     params = {
         "format": "geojson",
@@ -44,7 +40,7 @@ def extract_to_bronze(year: int, month: int):
         "maxlatitude": 6,
         "minlongitude": 95,
         "maxlongitude": 141,
-        "limit": 20000
+        "limit": 20000,
     }
 
     response = requests.get(BASE_URL, params=params)
@@ -53,7 +49,6 @@ def extract_to_bronze(year: int, month: int):
     rows = []
 
     for f in data.get("features", []):
-
         props = f.get("properties", {})
         geom = f.get("geometry", {})
         coords = geom.get("coordinates", [None, None, None])
@@ -62,14 +57,12 @@ def extract_to_bronze(year: int, month: int):
         if not props.get("time") or coords[0] is None:
             continue
 
-        rows.append({
-            "id": f.get("id"),
-            "raw_json": {
+        rows.append(
+            {
                 "id": f.get("id"),
-                "properties": props,
-                "geometry": geom
+                "raw_json": {"id": f.get("id"), "properties": props, "geometry": geom},
             }
-        })
+        )
 
     if not rows:
         print(f"No data for {year}-{month:02d}")
@@ -79,20 +72,13 @@ def extract_to_bronze(year: int, month: int):
     # BULK INSERT (FIXED JSONB)
     # =========================
     with db_manager.get_connection() as conn:
-
         conn.execute(
             text("""
-                INSERT INTO bronze_earthquakes (id, raw_json)
+                INSERT INTO bronze.earthquake_usgs_gov(id, raw_json)
                 VALUES (:id, CAST(:raw_json AS JSONB))
                 ON CONFLICT (id) DO NOTHING
             """),
-            [
-                {
-                    "id": r["id"],
-                    "raw_json": json.dumps(r["raw_json"])
-                }
-                for r in rows
-            ]
+            [{"id": r["id"], "raw_json": json.dumps(r["raw_json"])} for r in rows],
         )
 
     print(f"Bronze inserted: {len(rows)} rows")
@@ -116,3 +102,4 @@ def pipeline(start_year=2015, end_year=2025):
 
 if __name__ == "__main__":
     pipeline()
+
