@@ -4,5 +4,4 @@
 /prefect/cache
 /prefect/metadata
 __pycache__/
-*.py[cod]
-*$py.class
+
