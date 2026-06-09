@@ -8,6 +8,7 @@ from sqlalchemy import create_engine, Engine, text
 from sqlalchemy.orm import sessionmaker, Session
 
 from config.settings import settings
+import pandas as pd
 
 
 class DatabaseManager:
@@ -60,11 +61,19 @@ class DatabaseManager:
         finally:
             session.close()
 
-    def dispose(self):
-        """Dispose of the connection pool."""
-        if self._engine:
-            self._engine.dispose()
-            self._engine = None
+    def insert_dataframe(
+        self,
+        df: pd.DataFrame,
+        table_name: str,
+        if_exists: str = "append"
+    ):
+        """Insert pandas dataframe to PostgreSQL table."""
+        df.to_sql(
+            table_name,
+            self.engine,
+            if_exists=if_exists,
+            index=False
+        )
 
     def get_table_count(self, schema_name: str | None, table_name: str) -> int:
         """Get the number of rows in a table."""

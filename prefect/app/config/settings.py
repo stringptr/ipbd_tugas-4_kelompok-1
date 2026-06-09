@@ -25,11 +25,11 @@ if env_file:
 class Settings:
     """Application settings loaded from environment variables."""
 
-    WAREHOUSE_HOST: str = os.getenv("POSTGRES_WAREHOUSE_HOST", "localhost")
-    WAREHOUSE_PORT: str = os.getenv("POSTGRES_WAREHOUSE_PORT", "5432")
-    WAREHOUSE_USER: str = os.getenv("POSTGRES_WAREHOUSE_USER", "postgres")
-    WAREHOUSE_PASSWORD: str = os.getenv("POSTGRES_WAREHOUSE_PASSWORD", "postgres")
-    WAREHOUSE_NAME: str = os.getenv("POSTGRES_WAREHOUSE_DB", "postgres")
+    DATABASE_HOST: str = os.getenv("DATABASE_HOST", "database")
+    DATABASE_PORT: str = os.getenv("DATABASE_PORT", "5432")
+    DATABASE_USER: str = os.getenv("DATABASE_USER", "postgres")
+    DATABASE_PASSWORD: str = os.getenv("DATABASE_PASSWORD", "postgres")
+    DATABASE_NAME: str = os.getenv("DATABASE_DB", "postgres")
 
     DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "5"))
     DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "10"))
@@ -48,19 +48,19 @@ class Settings:
         """Build database connection string from settings."""
         driver = "postgresql+asyncpg" if async_driver else "postgresql"
         return (
-            f"{driver}://{cls.WAREHOUSE_USER}:{cls.WAREHOUSE_PASSWORD}"
-            f"@{cls.WAREHOUSE_HOST}:{cls.WAREHOUSE_PORT}/{cls.WAREHOUSE_NAME}"
+            f"{driver}://{cls.DATABASE_USER}:{cls.DATABASE_PASSWORD}"
+            f"@{cls.DATABASE_HOST}:{cls.DATABASE_PORT}/{cls.DATABASE_NAME}"
         )
 
     @classmethod
     def validate_db_settings(cls) -> bool:
         """Validate all required database settings are present."""
         required = [
-            "WAREHOUSE_USER",
-            "WAREHOUSE_PASSWORD",
-            "WAREHOUSE_HOST",
-            "WAREHOUSE_PORT",
-            "WAREHOUSE_NAME",
+            "DATABASE_USER",
+            "DATABASE_PASSWORD",
+            "DATABASE_HOST",
+            "DATABASE_PORT",
+            "DATABASE_NAME",
         ]
         missing = [var for var in required if not getattr(cls, var)]
 
@@ -74,10 +74,10 @@ class Settings:
         """Convert settings to dictionary for debugging."""
         return {
             "database": {
-                "host": cls.WAREHOUSE_HOST,
-                "port": cls.WAREHOUSE_PORT,
-                "name": cls.WAREHOUSE_NAME,
-                "user": cls.WAREHOUSE_USER,
+                "host": cls.DATABASE_HOST,
+                "port": cls.DATABASE_PORT,
+                "name": cls.DATABASE_NAME,
+                "user": cls.DATABASE_USER,
                 "pool_size": cls.DB_POOL_SIZE,
             },
             "prefect": {

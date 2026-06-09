@@ -3,3 +3,5 @@
 /storage
 /prefect/cache
 /prefect/metadata
+__pycache__/
+
